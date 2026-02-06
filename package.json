@@ -1,0 +1,97 @@
+{
+  "name": "qogito",
+  "displayName": "Qogito",
+  "description": "Agentic LLM client",
+  "publisher": "RipleyTom",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.108.1"
+  },
+  "categories": [
+    "Other"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qogito/qogito.git"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qogito-container",
+          "title": "Qogito",
+          "icon": "resources/icons/qogito.svg"
+        }
+      ]
+    },
+    "views": {
+      "qogito-container": [
+        {
+          "id": "qogito.view",
+          "type": "webview",
+          "name": "Qogito",
+          "icon": "resources/icons/qogito.svg",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "qogito.openSettings",
+          "when": "view == qogito.view",
+          "group": "navigation@0"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "qogito.transformSelection",
+          "when": "editorHasSelection",
+          "group": "qogito@1"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "qogito.openSettings",
+        "title": "⚙️ Open Qogito Settings",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "qogito.transformSelection",
+        "title": "Qogito: Transform Selection"
+      },
+      {
+        "command": "qogito.triggerCompletion",
+        "title": "Qogito: Trigger Completion"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "qogito.triggerCompletion",
+        "key": "alt+\\",
+        "when": "editorTextFocus && !editorReadonly"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.108.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.54.0",
+    "eslint": "^9.39.2",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
