@@ -28,6 +28,7 @@ export class LLamaCPPApi {
 	private connected: boolean = false;
 	private nCtx: number = 0;
 	private lastTotalTokens: number = 0;
+	private allowSelfSigned: boolean = false;
 
 	is_connected(): boolean {
 		return this.connected;
@@ -47,6 +48,15 @@ export class LLamaCPPApi {
 
 	reset_token_count(): void {
 		this.lastTotalTokens = 0;
+	}
+
+	set_allow_self_signed(value: boolean): void {
+		this.allowSelfSigned = value;
+		if (value) {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+		} else {
+			delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+		}
 	}
 
 	disconnect(): void {

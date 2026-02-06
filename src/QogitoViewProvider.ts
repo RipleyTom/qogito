@@ -29,6 +29,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				await this.context.globalState.update('qogito.agenticUrl', message.agenticUrl);
 				await this.context.globalState.update('qogito.completionUrl', message.completionUrl);
 				await this.context.globalState.update('qogito.allowRunCommand', message.allowRunCommand);
+				await this.context.globalState.update('qogito.allowSelfSigned', message.allowSelfSigned);
+				this.api.set_allow_self_signed(message.allowSelfSigned);
 				if (message.agenticUrl !== prevAgenticUrl) {
 					this.api.disconnect();
 					this.clearLog();
@@ -70,6 +72,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 			vscode.window.showWarningMessage('No Agentic URL configured.');
 			return;
 		}
+		this.api.set_allow_self_signed(this.context.globalState.get<boolean>('qogito.allowSelfSigned', false));
 		try {
 			await this.api.connect(url);
 		} catch (e: unknown) {
@@ -491,6 +494,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		const agenticUrl = this.context.globalState.get<string>('qogito.agenticUrl', '');
 		const completionUrl = this.context.globalState.get<string>('qogito.completionUrl', '');
 		const allowRunCommand = this.context.globalState.get<boolean>('qogito.allowRunCommand', true);
+		const allowSelfSigned = this.context.globalState.get<boolean>('qogito.allowSelfSigned', false);
 
 		return `<!DOCTYPE html>
 <html lang="en">
@@ -521,6 +525,10 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		<input type="checkbox" id="allowRunCommand" ${allowRunCommand ? 'checked' : ''} />
 		<label for="allowRunCommand">Allow run_command in Active mode</label>
 	</div>
+	<div class="checkbox-row">
+		<input type="checkbox" id="allowSelfSigned" ${allowSelfSigned ? 'checked' : ''} />
+		<label for="allowSelfSigned">Allow self-signed certificates</label>
+	</div>
 	<button id="save">Save</button>
 	<script>
 		const vscode = acquireVsCodeApi();
@@ -529,7 +537,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				command: 'save',
 				agenticUrl: document.getElementById('agenticUrl').value,
 				completionUrl: document.getElementById('completionUrl').value,
-				allowRunCommand: document.getElementById('allowRunCommand').checked
+				allowRunCommand: document.getElementById('allowRunCommand').checked,
+				allowSelfSigned: document.getElementById('allowSelfSigned').checked
 			});
 		});
 	</script>

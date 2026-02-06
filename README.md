@@ -20,6 +20,11 @@ This will not setup llama.cpp for you. You are expected to have it running with 
 
 ## Release Notes
 
+### 1.1.0
+
+Add an option to allow self signed certificates
+Fix repository url in the package.json
+
 ### 1.0.0
 
 Initial release of Qogito
