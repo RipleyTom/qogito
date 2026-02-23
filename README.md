@@ -8,7 +8,7 @@ This is a simple llama.cpp agentic client aiming for simplicity and security.
 
 * 2 agentic modes:
     * Passive: allow search and reads
-    * Active: allow file/directory creation, file removal and file editing
+    * Active: allow file/directory creation, file removal and file editing and shell commands(which need to be individually validated)
 * Separate completion endpoint
 * One shot transformation of selected text in editor in pop up menu
 * Auto compacting of conversations when reaching 95% of context
@@ -22,12 +22,11 @@ This will not setup llama.cpp for you. You are expected to have it running with 
 
 ### 1.1.0
 
-Add an option to allow self signed certificates
-Fix repository url in the package.json
+Added support for self signed certificates.
 
 ### 1.0.0
 
-Initial release of Qogito
+Initial release of Qogito.
 
 ## Bugs/Contributions
 

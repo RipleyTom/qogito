@@ -119,6 +119,13 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 
 		try {
 			while (true) {
+				// Compact before calling complete() if context is already near full
+				const nCtxMid = this.api.get_n_ctx();
+				if (!signal.aborted && nCtxMid > 0 && this.api.get_last_total_tokens() >= nCtxMid * 0.95) {
+					await this.compactContext(signal);
+					break;
+				}
+
 				this.chatLog.push({ role: 'assistant', content: '' });
 				this.render();
 
