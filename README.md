@@ -20,6 +20,11 @@ This will not setup llama.cpp for you. You are expected to have it running with 
 
 ## Release Notes
 
+### 1.2.0
+
+Added a new tool tool_list and a system prompt to help models reflect on if they could even execute the user query.
+The tool list is needed for non-thinking model to force them to reflect on it.
+
 ### 1.1.0
 
 Added support for self signed certificates.

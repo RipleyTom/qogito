@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import { LLamaCPPApi, ApiMessage } from './llamacpp_api';
 import { ACTIVE_MODE_TOOLS, PASSIVE_MODE_TOOLS, executeTool } from './tools';
 
+const DEFAULT_SYSTEM_PROMPT =
+`You are Qogito, an agentic coding assistant embedded in VS Code. You help with understanding and editing code in the current workspace.
+
+Always call tool_list as your very first action before doing anything else. Check the returned list carefully to confirm you have the tools needed to fulfill the request. If your request requires file editing and no file editing tools(write_file, str_replace) are available, state clearly that you cannot proceed rather than attempting a workaround. If the tools needed are not available you can stop processing the request after stating why.`;
+
 export class QogitoViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'qogito.view';
 
@@ -30,6 +35,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				await this.context.globalState.update('qogito.completionUrl', message.completionUrl);
 				await this.context.globalState.update('qogito.allowRunCommand', message.allowRunCommand);
 				await this.context.globalState.update('qogito.allowSelfSigned', message.allowSelfSigned);
+				await this.context.globalState.update('qogito.systemPrompt', message.systemPrompt);
 				this.api.set_allow_self_signed(message.allowSelfSigned);
 				if (message.agenticUrl !== prevAgenticUrl) {
 					this.api.disconnect();
@@ -101,7 +107,17 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		this.render();
 	}
 
+	private getSystemMessage(): ApiMessage {
+		const prompt = this.context.globalState.get<string>('qogito.systemPrompt', DEFAULT_SYSTEM_PROMPT);
+		return { role: 'system', content: prompt };
+	}
+
 	private async handleUserMessage(text: string): Promise<void> {
+		if (this.apiMessages.length === 0 || this.apiMessages[0].role !== 'system') {
+			this.apiMessages.unshift(this.getSystemMessage());
+		} else {
+			this.apiMessages[0] = this.getSystemMessage();
+		}
 		this.chatLog.push({ role: 'user', content: text });
 		this.apiMessages.push({ role: 'user', content: text });
 		this.isGenerating = true;
@@ -170,21 +186,24 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 						if (!allowedTools.has(call.name)) {
 							throw new Error(`Tool "${call.name}" is not permitted in ${this.mode} mode`);
 						}
-						if (!workspaceRoot) {
+						if (call.name === 'tool_list') {
+							result = tools.map(t => t.function.name).join('\n');
+						} else if (!workspaceRoot) {
 							throw new Error('No workspace folder open');
-						}
-						const args = JSON.parse(call.arguments) as Record<string, string>;
-						if (call.name === 'run_command') {
-							const choice = await vscode.window.showWarningMessage(
-								`Allow command to run?\n\n$ ${args.command}`,
-								{ modal: true },
-								'Run'
-							);
-							result = choice === 'Run'
-								? await executeTool(call.name, args, workspaceRoot)
-								: 'Command denied by user.';
 						} else {
-							result = await executeTool(call.name, args, workspaceRoot);
+							const args = JSON.parse(call.arguments) as Record<string, string>;
+							if (call.name === 'run_command') {
+								const choice = await vscode.window.showWarningMessage(
+									`Allow command to run?\n\n$ ${args.command}`,
+									{ modal: true },
+									'Run'
+								);
+								result = choice === 'Run'
+									? await executeTool(call.name, args, workspaceRoot)
+									: 'Command denied by user.';
+							} else {
+								result = await executeTool(call.name, args, workspaceRoot);
+							}
 						}
 					} catch (e) {
 						result = `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -275,7 +294,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		};
 		const roleLabelMap: Record<string, string> = {
 			user: 'user',
-			assistant: 'assistant',
+			assistant: 'qogito',
 			tool_call: 'tool call',
 			tool: 'tool result',
 			compaction: 'context summary',
@@ -502,6 +521,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		const completionUrl = this.context.globalState.get<string>('qogito.completionUrl', '');
 		const allowRunCommand = this.context.globalState.get<boolean>('qogito.allowRunCommand', true);
 		const allowSelfSigned = this.context.globalState.get<boolean>('qogito.allowSelfSigned', false);
+		const systemPrompt = this.context.globalState.get<string>('qogito.systemPrompt', DEFAULT_SYSTEM_PROMPT);
+		const escapedPrompt = systemPrompt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 		return `<!DOCTYPE html>
 <html lang="en">
@@ -520,6 +541,19 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 			background: var(--vscode-button-background); color: var(--vscode-button-foreground);
 			border: none; }
 		button:hover { background: var(--vscode-button-hoverBackground); }
+		details { margin-top: 16px; }
+		details summary { cursor: pointer; font-size: 12px; color: var(--vscode-descriptionForeground); user-select: none; }
+		details summary:hover { color: var(--vscode-foreground); }
+		.prompt-header { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+		.prompt-header label { margin-top: 0; }
+		.btn-secondary { margin-top: 0; padding: 2px 8px; font-size: 11px;
+			background: transparent; color: var(--vscode-descriptionForeground);
+			border: 1px solid var(--vscode-panel-border); }
+		.btn-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); color: var(--vscode-foreground); }
+		textarea { width: 100%; box-sizing: border-box; padding: 4px; margin-top: 4px;
+			font-family: var(--vscode-editor-font-family, monospace); font-size: 11px;
+			background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+			border: 1px solid var(--vscode-input-border); resize: vertical; }
 	</style>
 </head>
 <body>
@@ -536,16 +570,29 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		<input type="checkbox" id="allowSelfSigned" ${allowSelfSigned ? 'checked' : ''} />
 		<label for="allowSelfSigned">Allow self-signed certificates</label>
 	</div>
+	<details>
+		<summary>Advanced</summary>
+		<div class="prompt-header">
+			<label for="systemPrompt">System prompt</label>
+			<button class="btn-secondary" id="resetPrompt" type="button">Reset to default</button>
+		</div>
+		<textarea id="systemPrompt" rows="14">${escapedPrompt}</textarea>
+	</details>
 	<button id="save">Save</button>
 	<script>
 		const vscode = acquireVsCodeApi();
+		const DEFAULT_SYSTEM_PROMPT = ${JSON.stringify(DEFAULT_SYSTEM_PROMPT)};
+		document.getElementById('resetPrompt').addEventListener('click', () => {
+			document.getElementById('systemPrompt').value = DEFAULT_SYSTEM_PROMPT;
+		});
 		document.getElementById('save').addEventListener('click', () => {
 			vscode.postMessage({
 				command: 'save',
 				agenticUrl: document.getElementById('agenticUrl').value,
 				completionUrl: document.getElementById('completionUrl').value,
 				allowRunCommand: document.getElementById('allowRunCommand').checked,
-				allowSelfSigned: document.getElementById('allowSelfSigned').checked
+				allowSelfSigned: document.getElementById('allowSelfSigned').checked,
+				systemPrompt: document.getElementById('systemPrompt').value
 			});
 		});
 	</script>

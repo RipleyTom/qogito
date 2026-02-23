@@ -5,6 +5,8 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+const MAX_READ_CHARS = 8000;
+
 export interface ToolDefinition {
 	type: 'function';
 	function: {
@@ -48,6 +50,19 @@ function globToRegex(glob: string): RegExp {
 	return new RegExp(`^${escaped}$`);
 }
 
+const TOOL_LIST: ToolDefinition = {
+	type: 'function',
+	function: {
+		name: 'tool_list',
+		description: 'List the names of all tools currently available to you. Always call this tool first before responding to any user request, to confirm you have the tools needed to fulfil it.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			required: [],
+		},
+	},
+};
+
 const LIST_DIRECTORY: ToolDefinition = {
 	type: 'function',
 	function: {
@@ -70,7 +85,7 @@ const READ_FILE: ToolDefinition = {
 	type: 'function',
 	function: {
 		name: 'read_file',
-		description: 'Read the complete contents of a file from the file system.',
+		description: `Read the contents of a file. Large files are truncated at ${MAX_READ_CHARS} characters; use read_file_lines to read specific ranges of large files.`,
 		parameters: {
 			type: 'object',
 			properties: {
@@ -282,8 +297,8 @@ const RUN_COMMAND: ToolDefinition = {
 	},
 };
 
-export const PASSIVE_MODE_TOOLS: ToolDefinition[] = [LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO];
-export const ACTIVE_MODE_TOOLS: ToolDefinition[] = [LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO, CREATE_DIRECTORY, MOVE_FILE, DELETE_FILE, STR_REPLACE, WRITE_FILE, RUN_COMMAND];
+export const PASSIVE_MODE_TOOLS: ToolDefinition[] = [TOOL_LIST, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO];
+export const ACTIVE_MODE_TOOLS: ToolDefinition[] = [TOOL_LIST, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO, CREATE_DIRECTORY, MOVE_FILE, DELETE_FILE, STR_REPLACE, WRITE_FILE, RUN_COMMAND];
 
 const MAX_SEARCH_RESULTS = 50;
 
@@ -300,7 +315,10 @@ export async function executeTool(
 		}
 		case 'read_file': {
 			const resolved = validatePath(args.path, workspaceRoot);
-			return await fs.promises.readFile(resolved, 'utf8');
+			const content = await fs.promises.readFile(resolved, 'utf8');
+			if (content.length <= MAX_READ_CHARS) { return content; }
+			return content.slice(0, MAX_READ_CHARS) +
+				`\n[truncated: showing first ${MAX_READ_CHARS} of ${content.length} characters — use read_file_lines for specific ranges]`;
 		}
 		case 'read_file_lines': {
 			const resolved = validatePath(args.path, workspaceRoot);
