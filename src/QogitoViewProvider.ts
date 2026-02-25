@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import { LLamaCPPApi, ApiMessage } from './llamacpp_api';
 import { ACTIVE_MODE_TOOLS, PASSIVE_MODE_TOOLS, executeTool } from './tools';
 
+const SYSTEM_PROMPT_VERSION = 1;
+
 const DEFAULT_SYSTEM_PROMPT =
 `You are Qogito, an agentic coding assistant embedded in VS Code. You help with understanding and editing code in the current workspace.
 
-Always call tool_list as your very first action before doing anything else. Check the returned list carefully to confirm you have the tools needed to fulfill the request. If your request requires file editing and no file editing tools(write_file, str_replace) are available, state clearly that you cannot proceed rather than attempting a workaround. If the tools needed are not available you can stop processing the request after stating why.`;
+Always call list_tools as your very first action before doing anything else. Check the returned list carefully to confirm you have the tools needed to fulfill the request. If your request requires file editing and no file editing tools(write_file, str_replace) are available, state clearly that you cannot proceed rather than attempting a workaround. If the tools needed are not available you can stop processing the request after stating why.`;
 
 export class QogitoViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'qogito.view';
@@ -21,8 +23,14 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
-	resolveWebviewView(webviewView: vscode.WebviewView): void {
+	async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
 		this.view = webviewView;
+
+		const storedVersion = this.context.globalState.get<number>('qogito.systemPromptVersion', 0);
+		if (storedVersion !== SYSTEM_PROMPT_VERSION) {
+			await this.context.globalState.update('qogito.systemPrompt', DEFAULT_SYSTEM_PROMPT);
+			await this.context.globalState.update('qogito.systemPromptVersion', SYSTEM_PROMPT_VERSION);
+		}
 
 		webviewView.webview.options = {
 			enableScripts: true,
@@ -113,13 +121,16 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 	}
 
 	private async handleUserMessage(text: string): Promise<void> {
+		const sysMsg = this.getSystemMessage();
 		if (this.apiMessages.length === 0 || this.apiMessages[0].role !== 'system') {
-			this.apiMessages.unshift(this.getSystemMessage());
+			this.apiMessages.unshift(sysMsg);
+			this.api.add_estimated_tokens(sysMsg.content?.length ?? 0);
 		} else {
-			this.apiMessages[0] = this.getSystemMessage();
+			this.apiMessages[0] = sysMsg;
 		}
 		this.chatLog.push({ role: 'user', content: text });
 		this.apiMessages.push({ role: 'user', content: text });
+		this.api.add_estimated_tokens(text.length);
 		this.isGenerating = true;
 		this.render();
 
@@ -152,7 +163,12 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 					(chunk) => {
 						accumulated += chunk;
 						this.chatLog[this.chatLog.length - 1].content = accumulated;
-						this.view?.webview.postMessage({ command: 'appendChunk', text: chunk });
+						this.view?.webview.postMessage({
+							command: 'appendChunk',
+							text: chunk,
+							tokens: this.api.get_last_total_tokens(),
+							nCtx: this.api.get_n_ctx(),
+						});
 					},
 					signal
 				);
@@ -186,7 +202,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 						if (!allowedTools.has(call.name)) {
 							throw new Error(`Tool "${call.name}" is not permitted in ${this.mode} mode`);
 						}
-						if (call.name === 'tool_list') {
+						if (call.name === 'list_tools') {
 							result = tools.map(t => t.function.name).join('\n');
 						} else if (!workspaceRoot) {
 							throw new Error('No workspace folder open');
@@ -509,6 +525,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 					last.textContent += msg.text;
 					chatLog.scrollTop = chatLog.scrollHeight;
 				}
+				const bar = document.getElementById('token-bar');
+				if (bar) { bar.textContent = msg.tokens.toLocaleString() + ' / ' + msg.nCtx.toLocaleString() + ' tokens'; }
 			}
 		});
 	</script>
@@ -541,7 +559,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 			background: var(--vscode-button-background); color: var(--vscode-button-foreground);
 			border: none; }
 		button:hover { background: var(--vscode-button-hoverBackground); }
-		details { margin-top: 16px; }
+		hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 12px 0; }
+		details { margin-top: 4px; margin-bottom: 4px; }
 		details summary { cursor: pointer; font-size: 12px; color: var(--vscode-descriptionForeground); user-select: none; }
 		details summary:hover { color: var(--vscode-foreground); }
 		.prompt-header { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
@@ -563,13 +582,15 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 	<label for="completionUrl">Completion URL</label>
 	<input id="completionUrl" type="url" value="${completionUrl}" />
 	<div class="checkbox-row">
-		<input type="checkbox" id="allowRunCommand" ${allowRunCommand ? 'checked' : ''} />
-		<label for="allowRunCommand">Allow run_command in Active mode</label>
-	</div>
-	<div class="checkbox-row">
 		<input type="checkbox" id="allowSelfSigned" ${allowSelfSigned ? 'checked' : ''} />
 		<label for="allowSelfSigned">Allow self-signed certificates</label>
 	</div>
+	<hr>
+	<div class="checkbox-row">
+		<input type="checkbox" id="allowRunCommand" ${allowRunCommand ? 'checked' : ''} />
+		<label for="allowRunCommand">Allow run_command in Active mode</label>
+	</div>
+	<hr>
 	<details>
 		<summary>Advanced</summary>
 		<div class="prompt-header">
@@ -578,6 +599,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		</div>
 		<textarea id="systemPrompt" rows="14">${escapedPrompt}</textarea>
 	</details>
+	<hr>
 	<button id="save">Save</button>
 	<script>
 		const vscode = acquireVsCodeApi();

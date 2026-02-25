@@ -50,6 +50,10 @@ export class LLamaCPPApi {
 		this.lastTotalTokens = 0;
 	}
 
+	add_estimated_tokens(chars: number): void {
+		this.lastTotalTokens += Math.ceil(chars / 4);
+	}
+
 	set_allow_self_signed(value: boolean): void {
 		this.allowSelfSigned = value;
 		if (value) {
@@ -174,7 +178,10 @@ export class LLamaCPPApi {
 				if (!choice) { continue; }
 
 				const content = choice.delta.content;
-				if (content) { onChunk(content); }
+				if (content) {
+					this.add_estimated_tokens(content.length);
+					onChunk(content);
+				}
 
 				for (const tc of choice.delta.tool_calls ?? []) {
 					if (!pendingCalls.has(tc.index)) {

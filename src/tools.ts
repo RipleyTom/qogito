@@ -50,10 +50,10 @@ function globToRegex(glob: string): RegExp {
 	return new RegExp(`^${escaped}$`);
 }
 
-const TOOL_LIST: ToolDefinition = {
+const LIST_TOOLS: ToolDefinition = {
 	type: 'function',
 	function: {
-		name: 'tool_list',
+		name: 'list_tools',
 		description: 'List the names of all tools currently available to you. Always call this tool first before responding to any user request, to confirm you have the tools needed to fulfil it.',
 		parameters: {
 			type: 'object',
@@ -297,8 +297,8 @@ const RUN_COMMAND: ToolDefinition = {
 	},
 };
 
-export const PASSIVE_MODE_TOOLS: ToolDefinition[] = [TOOL_LIST, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO];
-export const ACTIVE_MODE_TOOLS: ToolDefinition[] = [TOOL_LIST, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO, CREATE_DIRECTORY, MOVE_FILE, DELETE_FILE, STR_REPLACE, WRITE_FILE, RUN_COMMAND];
+export const PASSIVE_MODE_TOOLS: ToolDefinition[] = [LIST_TOOLS, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO];
+export const ACTIVE_MODE_TOOLS: ToolDefinition[] = [LIST_TOOLS, LIST_DIRECTORY, READ_FILE, READ_FILE_LINES, SEARCH_FILES, GET_FILE_INFO, CREATE_DIRECTORY, MOVE_FILE, DELETE_FILE, STR_REPLACE, WRITE_FILE, RUN_COMMAND];
 
 const MAX_SEARCH_RESULTS = 50;
 
@@ -351,6 +351,7 @@ export async function executeTool(
 				} catch {
 					continue;
 				}
+				if (content.includes('\0')) { continue; }
 				const rel = path.relative(resolved, file);
 				for (const [i, line] of content.split('\n').entries()) {
 					if (pattern.test(line)) {
