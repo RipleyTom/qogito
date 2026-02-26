@@ -20,9 +20,9 @@ This will not setup llama.cpp for you. You are expected to have it running with 
 
 ## Release Notes
 
-### 1.2.1
+### 1.2.2
 
-Fix for binary files possibly being returned in search_files and some cleanup.
+Added support for thinking, options to hide thinking/tool calls and fixed a compaction bug.
 
 ## Bugs/Contributions
 

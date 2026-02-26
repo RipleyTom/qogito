@@ -104,7 +104,8 @@ export class LLamaCPPApi {
 		messages: ApiMessage[],
 		tools: ToolDefinition[],
 		onChunk: (text: string) => void,
-		signal?: AbortSignal
+		signal?: AbortSignal,
+		onReasoning?: (chunk: string) => void
 	): Promise<CompleteOutcome> {
 		if (!this.connected) {
 			throw new Error('Not connected');
@@ -141,6 +142,7 @@ export class LLamaCPPApi {
 			choices: {
 				delta: {
 					content?: string;
+					reasoning_content?: string;
 					tool_calls?: {
 						index: number;
 						id?: string;
@@ -176,6 +178,11 @@ export class LLamaCPPApi {
 				}
 				const choice = chunk.choices[0];
 				if (!choice) { continue; }
+
+				const reasoning = choice.delta.reasoning_content;
+				if (reasoning && onReasoning) {
+					onReasoning(reasoning);
+				}
 
 				const content = choice.delta.content;
 				if (content) {

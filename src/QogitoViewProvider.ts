@@ -43,6 +43,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				await this.context.globalState.update('qogito.completionUrl', message.completionUrl);
 				await this.context.globalState.update('qogito.allowRunCommand', message.allowRunCommand);
 				await this.context.globalState.update('qogito.allowSelfSigned', message.allowSelfSigned);
+				await this.context.globalState.update('qogito.showToolCalls', message.showToolCalls);
+				await this.context.globalState.update('qogito.showThinking', message.showThinking);
 				await this.context.globalState.update('qogito.systemPrompt', message.systemPrompt);
 				this.api.set_allow_self_signed(message.allowSelfSigned);
 				if (message.agenticUrl !== prevAgenticUrl) {
@@ -157,6 +159,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				this.render();
 
 				let accumulated = '';
+				let reasoningEntry: { role: string; content: string } | null = null;
 				const outcome = await this.api.complete(
 					this.apiMessages,
 					tools,
@@ -170,7 +173,16 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 							nCtx: this.api.get_n_ctx(),
 						});
 					},
-					signal
+					signal,
+					(reasoningChunk) => {
+						if (!reasoningEntry) {
+							reasoningEntry = { role: 'reasoning', content: '' };
+							this.chatLog.splice(this.chatLog.length - 1, 0, reasoningEntry);
+							this.render();
+						}
+						reasoningEntry.content += reasoningChunk;
+						this.view?.webview.postMessage({ command: 'appendReasoning', text: reasoningChunk });
+					}
 				);
 
 				if (outcome.kind === 'done') {
@@ -282,8 +294,17 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		if (!summary) { return; }
 
 		this.chatLog = [{ role: 'compaction', content: summary }];
-		this.apiMessages = [{ role: 'system', content: 'Summary of the conversation so far:\n\n' + summary }];
+		this.apiMessages = [
+			this.getSystemMessage(),
+			{ role: 'user', content: 'Summarize our conversation so far.' },
+			{ role: 'assistant', content: summary },
+		];
 		this.api.reset_token_count();
+		for (const msg of this.apiMessages) {
+			if (typeof msg.content === 'string') {
+				this.api.add_estimated_tokens(msg.content.length);
+			}
+		}
 		this.render();
 	}
 
@@ -306,6 +327,7 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 			assistant: 'role-assistant',
 			tool_call: 'role-tool-call',
 			tool: 'role-tool',
+			reasoning: 'role-reasoning',
 			compaction: 'role-compaction',
 		};
 		const roleLabelMap: Record<string, string> = {
@@ -313,16 +335,27 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 			assistant: 'qogito',
 			tool_call: 'tool call',
 			tool: 'tool result',
+			reasoning: 'thinking',
 			compaction: 'context summary',
 		};
 
-		const chatEntries = this.chatLog.map(entry => {
+		const showToolCalls = this.context.globalState.get<boolean>('qogito.showToolCalls', true);
+		const showThinking = this.context.globalState.get<boolean>('qogito.showThinking', true);
+
+		const chatEntries = this.chatLog.filter(entry => {
+			if (!showToolCalls && (entry.role === 'tool_call' || entry.role === 'tool')) { return false; }
+			if (!showThinking && entry.role === 'reasoning') { return false; }
+			return true;
+		}).map(entry => {
 			const escaped = entry.content
 				.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 			const roleClass = roleClassMap[entry.role] ?? 'role-assistant';
 			const label = roleLabelMap[entry.role] ?? entry.role;
 			if (entry.role === 'tool') {
 				return `<div class="chat-entry ${roleClass}"><details><summary><strong>${label}</strong></summary><span class="entry-content">${escaped}</span></details></div>`;
+			}
+			if (entry.role === 'reasoning') {
+				return `<div class="chat-entry ${roleClass}"><details open><summary><strong>${label}</strong></summary><span class="entry-content">${escaped}</span></details></div>`;
 			}
 			if (entry.role === 'compaction') {
 				return `<div class="chat-entry ${roleClass}"><details open><summary><strong>${label}</strong></summary><span class="entry-content">${escaped}</span></details></div>`;
@@ -418,14 +451,19 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		.role-assistant strong { color: var(--vscode-charts-green); }
 		.role-tool-call strong { color: var(--vscode-charts-yellow); }
 		.role-tool strong { color: var(--vscode-charts-orange); }
-		.role-tool details summary { cursor: pointer; list-style: none; }
-		.role-tool details summary::before { content: '▶ '; font-size: 10px; }
-		.role-tool details[open] summary::before { content: '▼ '; font-size: 10px; }
-		.role-tool details .entry-content { display: block; margin-top: 4px; white-space: pre-wrap; word-wrap: break-word; }
+		.role-reasoning strong { color: var(--vscode-charts-blue); }
 		.role-compaction strong { color: var(--vscode-charts-purple); }
+		.role-tool details summary,
+		.role-reasoning details summary,
 		.role-compaction details summary { cursor: pointer; list-style: none; }
+		.role-tool details summary::before,
+		.role-reasoning details summary::before,
 		.role-compaction details summary::before { content: '▶ '; font-size: 10px; }
+		.role-tool details[open] summary::before,
+		.role-reasoning details[open] summary::before,
 		.role-compaction details[open] summary::before { content: '▼ '; font-size: 10px; }
+		.role-tool details .entry-content,
+		.role-reasoning details .entry-content,
 		.role-compaction details .entry-content { display: block; margin-top: 4px; white-space: pre-wrap; word-wrap: break-word; }
 		#input-area {
 			display: flex;
@@ -527,6 +565,13 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				}
 				const bar = document.getElementById('token-bar');
 				if (bar) { bar.textContent = msg.tokens.toLocaleString() + ' / ' + msg.nCtx.toLocaleString() + ' tokens'; }
+			} else if (msg.command === 'appendReasoning') {
+				const entries = chatLog.querySelectorAll('.role-reasoning .entry-content');
+				const last = entries[entries.length - 1];
+				if (last) {
+					last.textContent += msg.text;
+					chatLog.scrollTop = chatLog.scrollHeight;
+				}
 			}
 		});
 	</script>
@@ -539,6 +584,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		const completionUrl = this.context.globalState.get<string>('qogito.completionUrl', '');
 		const allowRunCommand = this.context.globalState.get<boolean>('qogito.allowRunCommand', true);
 		const allowSelfSigned = this.context.globalState.get<boolean>('qogito.allowSelfSigned', false);
+		const showToolCalls = this.context.globalState.get<boolean>('qogito.showToolCalls', true);
+		const showThinking = this.context.globalState.get<boolean>('qogito.showThinking', true);
 		const systemPrompt = this.context.globalState.get<string>('qogito.systemPrompt', DEFAULT_SYSTEM_PROMPT);
 		const escapedPrompt = systemPrompt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -590,6 +637,14 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 		<input type="checkbox" id="allowRunCommand" ${allowRunCommand ? 'checked' : ''} />
 		<label for="allowRunCommand">Allow run_command in Active mode</label>
 	</div>
+	<div class="checkbox-row">
+		<input type="checkbox" id="showToolCalls" ${showToolCalls ? 'checked' : ''} />
+		<label for="showToolCalls">Show tool calls</label>
+	</div>
+	<div class="checkbox-row">
+		<input type="checkbox" id="showThinking" ${showThinking ? 'checked' : ''} />
+		<label for="showThinking">Show thinking</label>
+	</div>
 	<hr>
 	<details>
 		<summary>Advanced</summary>
@@ -614,6 +669,8 @@ export class QogitoViewProvider implements vscode.WebviewViewProvider {
 				completionUrl: document.getElementById('completionUrl').value,
 				allowRunCommand: document.getElementById('allowRunCommand').checked,
 				allowSelfSigned: document.getElementById('allowSelfSigned').checked,
+				showToolCalls: document.getElementById('showToolCalls').checked,
+				showThinking: document.getElementById('showThinking').checked,
 				systemPrompt: document.getElementById('systemPrompt').value
 			});
 		});
